@@ -1,0 +1,29 @@
+{{- if .Values.gatewayRoute.enabled }}
+# 可选：nginx 对外路由。当集群已部署 Gateway API 网关时启用，把 test.com 的 / 前缀转发到本 Service。
+# parentRefs.name 指定目标网关（可 --set gatewayRoute.name= 覆盖）。
+# 路径前缀 / 经 URLRewrite 保持 /，转发给后端根路径首页。
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: {{ .Values.basic.component }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  parentRefs:
+    - name: {{ .Values.gatewayRoute.name }}
+  hostnames:
+    - {{ .Values.gatewayRoute.hostname }}
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: {{ .Values.gatewayRoute.path }}
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
+      backendRefs:
+        - name: {{ .Values.basic.component }}
+          port: {{ .Values.service.externPort }}
+{{- end }}

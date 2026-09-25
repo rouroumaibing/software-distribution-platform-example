@@ -1,0 +1,32 @@
+# 所有名字空间内资源注入当前 release 的命名空间（helm install 不指定 -n 即 default）。
+
+basic:
+  # k8s 资源名统一用短名；镜像名才是全名。
+  component: nginx
+  replicaCount: 1
+
+service:
+  containerPort: 80
+  externPort: 80
+  # 不指定固定 nodePort：NodePort 类型下由 k8s 自动分配，避免与集群已有端口冲突。
+
+image:
+  # 构建时由 build/nginx/build.sh 把版本号渲染进本字段（不要手改，会被覆盖）。
+  # 镜像名与镜像 tar 内的镜像名一致。若使用私有仓库，push 后 --set image.imageAddr=<repo>/nginx:<version> 覆盖。
+  imageAddr: localhost:5000/nginx:v0.0.1
+  pullPolicy: IfNotPresent
+
+resources:
+  resources_cpu_requests: 50m
+  resources_cpu_limits: 200m
+  resources_mem_requests: 64Mi
+  resources_mem_limits: 256Mi
+
+# 可选：若集群已部署 Gateway API 网关，可开启此 HTTPRoute 对外暴露 nginx。
+# 默认关闭——普通 k8s 无需网关即可通过 Service / port-forward 访问。
+# 开启后 host 用 test.com、路径前缀 /，挂载到 parentRefs 指定的网关（可 --set 覆盖）。
+gatewayRoute:
+  enabled: false
+  name: nginx-gateway
+  hostname: test.com
+  path: /

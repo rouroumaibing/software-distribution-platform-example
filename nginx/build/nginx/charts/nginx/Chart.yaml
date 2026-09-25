@@ -1,0 +1,4 @@
+apiVersion: v2
+name: nginx
+description: nginx example chart
+version: 0.0.1
