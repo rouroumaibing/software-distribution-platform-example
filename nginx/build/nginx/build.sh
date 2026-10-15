@@ -55,13 +55,64 @@ function render_chart_version(){
     echo "chart rendered: imageAddr=${repo}:${version} chartVersion=${version#v}"
 }
 
+# ---------- 容器运行时自感知分派（docker / containerd-nerdctl 双支持）----------
+# k8s 1.24+ 默认 containerd、节点无 docker：构建与镜像操作按本地可用运行时分派。
+# 默认 nerdctl（containerd 工具）；若环境存在 docker 命令则重赋为 docker；
+# 否则保持 nerdctl；nerdctl 须已在环境中就绪，缺失直接报失败（不做自动安装）。
+SDP_RUNTIME="${SDP_RUNTIME:-nerdctl}"
+
+ensure_nerdctl() {
+    # nerdctl 硬判断：环境中必须已安装 nerdctl + buildkitd，否则直接报失败。
+    # （nerdctl build 依赖 buildkitd，nerdctl 不自带也不自动启动；离线节点请提前装好。）
+    command -v nerdctl >/dev/null 2>&1 || {
+        echo "ERROR: 当前环境无 docker，且未检测到 nerdctl，无法构建镜像。请先安装 nerdctl + buildkitd。" >&2
+        exit 1
+    }
+    command -v buildkitd >/dev/null 2>&1 || {
+        echo "ERROR: 检测到 nerdctl 但缺少 buildkitd（nerdctl build 必需），请先安装 buildkitd。" >&2
+        exit 1
+    }
+    pgrep -x buildkitd >/dev/null 2>&1 || nohup buildkitd --containerd-worker --addr tcp://127.0.0.1:1234 >/var/log/buildkitd.log 2>&1 &
+    export BUILDKIT_HOST=tcp://127.0.0.1:1234
+}
+
+resolve_runtime() {
+    case "${SDP_RUNTIME}" in docker|nerdctl) ;; *) echo "ERROR: SDP_RUNTIME 仅支持 docker|nerdctl" >&2; exit 1 ;; esac
+    if command -v docker >/dev/null 2>&1; then SDP_RUNTIME=docker; return 0; fi
+    ensure_nerdctl
+    nerdctl info >/dev/null 2>&1 || { echo "ERROR: containerd/nerdctl 不可达" >&2; exit 1; }
+}
+
+sdp_build() { local ctx="$1" img="$2"; shift 2
+    case "${SDP_RUNTIME}" in
+        docker)  docker  build  "$@" -t "$img" "$ctx" ;;
+        nerdctl) nerdctl build  "$@" -t "$img" "$ctx" ;;
+    esac; }
+sdp_save() {
+    if [ -n "${2:-}" ]; then
+        case "${SDP_RUNTIME}" in
+            docker)  docker  save -o "$2" "$1" ;;
+            nerdctl) nerdctl save --format docker -o "$2" "$1" ;;
+        esac
+    else
+        case "${SDP_RUNTIME}" in
+            docker)  docker  save "$1" ;;
+            nerdctl) nerdctl save --format docker "$1" ;;
+        esac
+    fi; }
+sdp_inspect() { case "${SDP_RUNTIME}" in docker) docker image inspect "$1" ;; nerdctl) nerdctl image inspect "$1" ;; esac; }
+sdp_pull() { case "${SDP_RUNTIME}" in docker) docker pull "$1" ;; nerdctl) nerdctl pull "$1" ;; esac; }
+sdp_tag() { case "${SDP_RUNTIME}" in docker) docker tag "$1" "$2" ;; nerdctl) nerdctl tag "$1" "$2" ;; esac; }
+sdp_push() { case "${SDP_RUNTIME}" in docker) docker push "$1" ;; nerdctl) nerdctl push "$1" ;; esac; }
+sdp_login() { case "${SDP_RUNTIME}" in docker) docker login "$@" ;; nerdctl) nerdctl login "$@" ;; esac; }
+
+resolve_runtime; echo "== container runtime: ${SDP_RUNTIME} =="
+
 function build_nginx_image(){
     pushd "${OUTPUTDIR}/images" > /dev/null
-    echo "== docker build ${component}:${version} =="
-    # 镜像名与 chart values.imageAddr 保持一致（默认 localhost:5000 为本地构建约定）。
-    # 不用 --network host：macOS Docker Desktop 不支持 host 网络；nginx 构建仅需 COPY，无需容器内联网。
-    docker build . -t "localhost:5000/${component}:${version}"
-    docker save -o "${OUTPUTDIR}/images/${component}-${version}.tar" "localhost:5000/${component}:${version}"
+    echo "== build ${component}:${version} (runtime=${SDP_RUNTIME}) =="
+    sdp_build . "localhost:5000/${component}:${version}"
+    sdp_save "localhost:5000/${component}:${version}" "${OUTPUTDIR}/images/${component}-${version}.tar"
     if [ -f "${OUTPUTDIR}/images/${component}-${version}.tar" ]; then
         echo "${component} build image successfully."
     else
@@ -73,7 +124,7 @@ function build_nginx_image(){
 
 # 可选: 有本地 registry（如 kind 环境 localhost:5000）时打 tag 推送，失败不阻断。
 function push_to_local_registry(){
-    if docker push "localhost:5000/${component}:${version}" 2>/dev/null; then
+    if sdp_push "localhost:5000/${component}:${version}" 2>/dev/null; then
         echo "${component} pushed to localhost:5000."
     else
         echo "WARN: push to localhost:5000 failed (no local registry?), skip."
