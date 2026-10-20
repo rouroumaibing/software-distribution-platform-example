@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.basic.component }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Values.basic.component }}
+spec:
+  replicas: {{ .Values.basic.replicaCount }}
+  revisionHistoryLimit: 10
+  # selector 只含 app 标签：同一 Service 可同时选中不同镜像版本的 pod，
+  # 多版本并存（灰度/滚动发布）时流量按副本比例自然分布，无需改动 selector。
+  selector:
+    matchLabels:
+      app: {{ .Values.basic.component }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.basic.component }}
+    spec:
+      containers:
+        - name: container-1
+          image: {{ .Values.image.imageAddr }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          resources:
+            requests:
+              cpu: {{ .Values.resources.resources_cpu_requests }}
+              memory: {{ .Values.resources.resources_mem_requests }}
+            limits:
+              cpu: {{ .Values.resources.resources_cpu_limits }}
+              memory: {{ .Values.resources.resources_mem_limits }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.containerPort }}
+              protocol: TCP
+          # 根路径健康检查：保证访问页面前 Pod 已就绪。
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 15
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 25%
+      maxSurge: 25%
+  progressDeadlineSeconds: 600

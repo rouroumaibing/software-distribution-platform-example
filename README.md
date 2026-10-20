@@ -7,6 +7,7 @@ SDP（软件发布平台）**案例库** —— 收录可被 SDP 构建、分发
 | 案例 | 说明 |
 | --- | --- |
 | [`nginx/`](./nginx) | 以 `nginx:perl` 为基础镜像、仅替换 `index.html` 的静态页面样例。 |
+| [`nginx-canary/`](./nginx-canary) | nginx 案例的 canary 变体：版本占位首页 + app-only selector，独立可部署、天然支持多版本副本比例分流；与 nginx 案例并排对照，差异点见其 README。 |
 
 ## 如何使用一个案例
 

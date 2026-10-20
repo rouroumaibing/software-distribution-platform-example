@@ -1,0 +1,6 @@
+apiVersion: v2
+name: nginx-canary
+description: nginx 案例的 canary 变体（版本占位首页 + app-only selector），独立可部署
+type: application
+version: 0.0.1
+appVersion: "v0.0.1"
